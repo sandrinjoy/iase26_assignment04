@@ -117,7 +117,48 @@ internal class GrammarFuzzer(
         state: ExpansionState,
         strategy: ExpansionStrategy,
         preferRecursive: Boolean
-    ): MutableList<DerivationNode> = TODO("Exercise 2: expand one pending derivation-tree node")
+    ): MutableList<DerivationNode> {
+        val result = when (val expr = node.expression) {
+            is Expression.Terminal -> mutableListOf()
+
+            is Expression.NonTerminal -> {
+                val productionExpr = grammar.productions[expr.name]
+                    ?: throw IllegalArgumentException("Unknown non-terminal: ${expr.name}")
+                val nextPath = node.path + expr.name
+                val occurrences = nextPath.count { it == expr.name }
+                state.recursiveDescents = maxOf(state.recursiveDescents, occurrences)
+                mutableListOf(DerivationNode(productionExpr, nextPath, node.level + 1))
+            }
+
+            is Expression.Sequence -> {
+                expr.parts.map { DerivationNode(it, node.path, node.level + 1) }.toMutableList()
+            }
+
+            is Expression.Choice -> {
+                val chosen = chooseAlternative(expr.alternatives, node.path, state, strategy)
+                mutableListOf(DerivationNode(chosen, node.path, node.level + 1))
+            }
+
+            is Expression.Optional -> {
+                if (includeOptional(expr.body, node.path, state, strategy, preferRecursive)) {
+                    mutableListOf(DerivationNode(expr.body, node.path, node.level + 1))
+                } else {
+                    mutableListOf()
+                }
+            }
+
+            is Expression.Repetition -> {
+                val count = repetitionCount(expr.body, node.path, state, strategy, preferRecursive)
+                List(count) { DerivationNode(expr.body, node.path, node.level + 1) }.toMutableList()
+            }
+
+            is Expression.Group -> {
+                mutableListOf(DerivationNode(expr.body, node.path, node.level + 1))
+            }
+        }
+        resolveTerminals(result)
+        return result
+    }
 
     /** Marks terminal children as already closed, so they are never expanded again. */
     private fun resolveTerminals(nodes: MutableList<DerivationNode>) {
